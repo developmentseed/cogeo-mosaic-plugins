@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='utf-8' />
+        <title>Cogeo-Mosaic Debug</title>
+        <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+
+        <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v1.6.1/mapbox-gl.js'></script>
+        <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v1.6.1/mapbox-gl.css' rel='stylesheet' />
+
+        <link href='https://api.mapbox.com/mapbox-assembly/v0.23.2/assembly.min.css' rel='stylesheet'>
+        <script src='https://api.mapbox.com/mapbox-assembly/v0.23.2/assembly.js'></script>
+
+        <script src="{{ url_for('static', path='/spherical-mercator.js') }}"></script>
+
+        <style>
+            body { margin:0; padding:0; width:100%; height:100%;}
+            #map { position:absolute; top:0; bottom:0; width:100%; }
+            .loading-map {
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                color: #FFF;
+                background-color: #000;
+                text-align: center;
+                opacity: 0.5;
+                font-size: 45px;
+            }
+            .loading-map.off{
+                opacity: 0;
+                -o-transition: all .5s ease;
+                -webkit-transition: all .5s ease;
+                -moz-transition: all .5s ease;
+                -ms-transition: all .5s ease;
+                transition: all ease .5s;
+                visibility:hidden;
+            }
+            .middle-center {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+
+            .middle-center * {
+                display: block;
+                padding: 5px;
+            }
+
+            #menu {
+              left: 0;
+              top: 0;
+              -o-transition: all .5s ease;
+              -webkit-transition: all .5s ease;
+              -moz-transition: all .5s ease;
+              -ms-transition: all .5s ease;
+              transition: all ease .5s;
+            }
+
+            @media(max-width: 767px) {
+              .mapboxgl-ctrl-attrib {
+                  font-size: 10px;
+              }
+            }
+
+        </style>
+    </head>
+
+    <body>
+
+    <div id='map'>
+      <div id='loader' class="loading-map z3">
+        <div class="middle-center">
+          <div class="round animation-spin animation--infinite animation--speed-1">
+            <svg class='icon icon--l inline-block'><use xlink:href='#icon-satellite'/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="zoom-info"><span id="zoom"></span></div>
+    </div>
+
+    <script>
+    mapboxgl.accessToken = '{{ mapbox_access_token  }}'
+
+    const merc = new SphericalMercator({ size: 256 });
+
+    let style
+    if (mapboxgl.accessToken !== ''){
+      style = 'mapbox://styles/mapbox/{{ mapbox_style }}-v9'
+    } else {
+      style = { version: 8, sources: {}, layers: [] }
+    }
+
+    var map = new mapboxgl.Map({
+        container: 'map',
+        style: style,
+        center: [0, 0],
+        zoom: 1
+    })
+
+    /**
+     * Get the tile for a quadkey
+     * From https://github.com/mapbox/tilebelt/blob/master/index.js#L197-L223
+     *
+     * @name quadkeyToTile
+     * @param {string} quadkey
+     * @returns {Array<number>} tile
+     * @example
+     * var tile = quadkeyToTile('00001033')
+     * //=tile
+     */
+    function quadkeyToTile(quadkey) {
+        var x = 0;
+        var y = 0;
+        var z = quadkey.length;
+
+        for (var i = z; i > 0; i--) {
+            var mask = 1 << (i - 1);
+            var q = +quadkey[z - i];
+            if (q === 1) x |= mask;
+            if (q === 2) y |= mask;
+            if (q === 3) {
+                x |= mask;
+                y |= mask;
+            }
+        }
+        return [x, y, z];
+    }
+
+    map.on('load', () => {
+        fetch('{{ info_endpoint }}')
+            .then(res => {
+                if (res.ok) return res.json()
+                throw new Error('Network response was not ok.');
+            })
+            .then(data => {
+                map.addSource('aoi', {
+                    'type': 'geojson',
+                    'data': data
+                })
+                map.addLayer({
+                    id: 'aoi-polygon',
+                    type: 'line',
+                    source: 'aoi',
+                    layout: {
+                        'line-cap': 'round',
+                        'line-join': 'round'
+                    },
+                    paint: {
+                        'line-color': '#000000',
+                        'line-dasharray': [3, 3],
+                        'line-width': 1
+                    }
+                })
+                let bounds = data.bbox
+                map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]])
+
+                return data.properties.quadkeys
+            })
+            .then(data => {
+                const featCollection = {
+                    'type': 'FeatureCollection',
+                    'features': [],
+                }
+                let qk, tile, x, y, zoom, extent, w, s, e, n
+                for (var i = 0; i < data.length; i++) {
+                    qk = data[i]
+                    tile = quadkeyToTile(qk)
+                    x = tile[0]
+                    y = tile[1]
+                    zoom = tile[2]
+
+                    extent = merc.bbox(x, y, zoom)
+                    w = extent[0]
+                    s = extent[1]
+                    e = extent[2]
+                    n = extent[3]
+
+                    featCollection.features.push(
+                        {
+                            'type': 'Feature',
+                            'id': qk,
+                            'geometry': {
+                                'type': 'Polygon',
+                                'coordinates': [
+                                    [
+
+                                        [w, n],
+                                        [e, n],
+                                        [e, s],
+                                        [w, s],
+                                        [w, n]
+                                    ]
+                                ]
+                            },
+                            'properties': {
+                                'qk': qk
+                            }
+                        }
+                    )
+                }
+                return featCollection
+            })
+            .then(data => {
+                map.addSource('tile-grid', {
+                    'type': 'geojson',
+                    'data': data
+                })
+                map.addLayer({
+                    id: 'tile-grid',
+                    type: 'fill',
+                    source: 'tile-grid',
+                    paint: {
+                        'fill-color': 'hsla(0, 0%, 0%, 0)',
+                        'fill-outline-color': 'hsl(207, 84%, 57%)',
+                    }
+                })
+                map.addLayer({
+                    id: 'tile-grid-h',
+                    type: 'fill',
+                    source: 'tile-grid',
+                    paint: {
+                        'fill-outline-color': '#1386af',
+                        'fill-color': '#0f6d8e',
+                        'fill-opacity': 0.3
+                    },
+                    filter: ['==', 'qk', '']
+                })
+            })
+            .catch(err => {
+                console.warn(err)
+            })
+            .then(() => {
+                document.getElementById('loader').classList.toggle('off')
+            })
+
+        map.on('click', 'tile-grid', (e) => {
+            let props = e.features[0].properties
+            map.setFilter('tile-grid-h', ['in', 'qk', props.qk]);
+
+            document.getElementById('loader').classList.toggle('off')
+
+            fetch(`{{ assets_endpoint }}?qk=${props.qk}`)
+                .then(res => {
+                    if (res.ok) return res.json()
+                    throw new Error('Network response was not ok.');
+                })
+                .then(data => {
+                    // Display the key/value pairs
+                    let tile = quadkeyToTile(props.qk)
+                    let x = tile[0]
+                    let y = tile[1]
+                    let zoom = tile[2]
+
+                    let html = `<div>Tile:  ${zoom}-${x}-${y} (${props.qk})</div>`
+                    html += `<div>nb assets:  ${data.length}</div>`
+
+                    for (var i = 0; i < data.length; i++) {
+                        html += `<div>${data[i]}</div>`
+                    }
+                    new mapboxgl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(html)
+                        .setMaxWidth("auto")
+                        .addTo(map)
+
+                    return
+                })
+                .catch(err => {
+                    console.warn(err)
+                })
+                .then(() => {
+                    document.getElementById('loader').classList.toggle('off')
+                })
+
+        })
+
+        map.on('mousemove', (e) => {
+            const mouseRadius = 1
+            const features = map.queryRenderedFeatures(e.point, { layers: ['tile-grid'] })
+            if (features.length > 0) {
+                map.getCanvas().style.cursor = 'pointer'
+            } else {
+                map.getCanvas().style.cursor = 'inherit'
+            }
+        })
+
+    })
+
+    </script>
+
+    </body>
+    </html>

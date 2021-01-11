@@ -1,0 +1,2 @@
+include cogeo_mosaic_plugins/templates/*
+include cogeo_mosaic_plugins/static/*
