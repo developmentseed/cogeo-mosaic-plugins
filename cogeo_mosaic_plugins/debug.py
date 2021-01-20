@@ -7,9 +7,11 @@ import attr
 import mercantile
 import uvicorn
 from cogeo_mosaic.backends import MosaicBackend
+from cogeo_mosaic.utils import get_footprints
 from fastapi import APIRouter, FastAPI, Query
 from fastapi.staticfiles import StaticFiles
-from geojson_pydantic.features import Feature
+from geojson_pydantic.features import Feature, FeatureCollection
+from rio_tiler.constants import MAX_THREADS
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
@@ -80,6 +82,21 @@ class MosaicDebug:
                 return mosaic.assets_for_tile(x, y, z)
 
         @self.router.get(
+            r"/shapes.geojson",
+            response_model=FeatureCollection,
+            response_model_exclude_none=True,
+            responses={200: {"description": "Return info about the MosaicJSON"}},
+            response_class=GeoJSONResponse,
+        )
+        def shapes(qk: str = Query(...)):
+            """return info."""
+            x, y, z = mercantile.quadkey_to_tile(qk)
+            with MosaicBackend(self.src_path) as mosaic:
+                assets = mosaic.assets_for_tile(x, y, z)
+                features = get_footprints(assets, max_threads=MAX_THREADS)
+            return FeatureCollection(features=features)
+
+        @self.router.get(
             r"/info.geojson",
             response_model=Feature,
             response_model_exclude_none=True,
@@ -107,6 +124,7 @@ class MosaicDebug:
                     "request": request,
                     "info_endpoint": request.url_for("info"),
                     "assets_endpoint": request.url_for("assets"),
+                    "shapes_endpoint": request.url_for("shapes"),
                     "mapbox_access_token": self.token,
                     "mapbox_style": self.style,
                 },

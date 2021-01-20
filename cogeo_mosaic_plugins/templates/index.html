@@ -127,6 +127,40 @@
         return [x, y, z];
     }
 
+    const loadGeom = (qk) => {
+        if (map.getLayer('shapes')) map.removeLayer('shapes')
+        if (map.getSource('shapes')) map.removeSource('shapes')
+
+        document.getElementById('loader').classList.toggle('off')
+
+        fetch(`{{ shapes_endpoint }}?qk=${qk}`)
+            .then(res => {
+                if (res.ok) return res.json()
+                throw new Error('Network response was not ok.');
+            })
+            .then(data => {
+                map.addSource('shapes', {
+                    'type': 'geojson',
+                    'data': data
+                })
+                map.addLayer({
+                    id: 'shapes',
+                    type: 'fill',
+                    source: 'shapes',
+                    paint: {
+                        'fill-color': 'hsla(0, 0%, 0%, 0)',
+                        'fill-outline-color': '#c12020',
+                    }
+                })
+            })
+            .catch(err => {
+                console.warn(err)
+            })
+            .then(() => {
+                document.getElementById('loader').classList.toggle('off')
+            })
+    }
+
     map.on('load', () => {
         fetch('{{ info_endpoint }}')
             .then(res => {
@@ -258,6 +292,9 @@
                     for (var i = 0; i < data.length; i++) {
                         html += `<div>${data[i]}</div>`
                     }
+
+                    html += `<button class='btn bts--xs btn--stroke bg-darken25-on-hover inline-block txt-s color-black' onclick=loadGeom("${props.qk}")>Load geom</button>`
+
                     new mapboxgl.Popup()
                         .setLngLat(e.lngLat)
                         .setHTML(html)

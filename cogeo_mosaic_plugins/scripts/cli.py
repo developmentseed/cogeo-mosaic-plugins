@@ -34,8 +34,8 @@ class MbxTokenType(click.ParamType):
 @click.argument("src_path", type=str, nargs=1, required=True)
 @click.option(
     "--style",
-    type=click.Choice(["satellite", "basic"]),
-    default="basic",
+    type=click.Choice(["dark", "satellite", "basic"]),
+    default="dark",
     help="Mapbox basemap",
 )
 @click.option("--port", type=int, default=8080, help="Webserver port (default: 8080)")
